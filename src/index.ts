@@ -12,7 +12,7 @@ import { join, dirname, basename, normalize, resolve, relative } from 'path';
 import { existsSync, readdirSync, readFileSync, writeFileSync, copyFileSync, unlinkSync, mkdirSync, renameSync, realpathSync } from 'fs';
 import { spawn, execFile } from 'child_process';
 import { promisify } from 'util';
-import { createConnection, Socket } from 'net';
+import { createConnection, createServer, Socket } from 'net';
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
@@ -123,7 +123,23 @@ export class GodotServer {
   private nextRequestId: number = 1;
   private lastErrorIndex: number = 0;
   private lastLogIndex: number = 0;
-  private readonly INTERACTION_PORT = 9090;
+  /** Port of the running game's interaction server: a free one picked at each run_project, so
+   *  several sessions (or projects) running games at once never share a port. */
+  private INTERACTION_PORT = 9090;
+
+  /** A TCP port free on 127.0.0.1 right now. */
+  private findFreePort(): Promise<number> {
+    return new Promise((resolve, reject) => {
+      const probe = createServer();
+      probe.unref();
+      probe.on('error', reject);
+      probe.listen(0, '127.0.0.1', () => {
+        const address = probe.address();
+        const port = typeof address === 'object' && address !== null ? address.port : 9090;
+        probe.close(() => resolve(port));
+      });
+    });
+  }
   private readonly AUTOLOAD_NAME = 'McpInteractionServer';
 
   constructor(config?: GodotServerConfig) {
@@ -373,12 +389,9 @@ export class GodotServer {
     const existingContent = readFileSync(projectFile, 'utf8');
     if (existingContent.includes(this.AUTOLOAD_NAME)) {
       this.gameConnection.interactionServerInjectedByUs = false;
-      if (!existsSync(destScript)) {
-        copyFileSync(this.interactionScriptPath, destScript);
-        this.logDebug(`Autoload present but script missing; restored ${destScript}`);
-      } else {
-        this.logDebug('Interaction server autoload and script already present; leaving project untouched');
-      }
+      // always the current script, so an old copy with a fixed port never lingers
+      copyFileSync(this.interactionScriptPath, destScript);
+      this.logDebug(`Autoload present; refreshed ${destScript}`);
       return;
     }
 
@@ -3787,7 +3800,11 @@ export class GodotServer {
         cmdArgs.push(args.scene);
       }
 
-      this.logDebug(`Running Godot project: ${args.projectPath}`);
+      // a port of its own, passed to the game after "--" (read by mcp_interaction_server.gd)
+      this.INTERACTION_PORT = await this.findFreePort();
+      cmdArgs.push('--', `--mcp-port=${this.INTERACTION_PORT}`);
+
+      this.logDebug(`Running Godot project: ${args.projectPath} (interaction port ${this.INTERACTION_PORT})`);
       const process = spawn(this.godotPath!, cmdArgs, { stdio: 'pipe' });
       const output: string[] = [];
       const errors: string[] = [];

@@ -10,7 +10,10 @@ var _buffer: String = ""
 var _busy: bool = false
 var _busy_since: float = 0.0
 var _current_id: Variant = null
-const PORT: int = 9090
+const DEFAULT_PORT: int = 9090
+## The port to listen on: `--mcp-port=N` after "--" on the command line (the MCP server picks a
+## free one for each run), else DEFAULT_PORT.
+var PORT: int = DEFAULT_PORT
 const BUSY_TIMEOUT: float = 120.0
 var _key_map: Dictionary
 var _held_keys: Dictionary = {}
@@ -19,6 +22,9 @@ func _ready() -> void:
 	# Ensure MCP server keeps processing even when game is paused
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	_init_key_map()
+	for arg: String in OS.get_cmdline_user_args():
+		if arg.begins_with("--mcp-port="):
+			PORT = int(arg.get_slice("=", 1))
 	_server = TCPServer.new()
 	var err: int = _server.listen(PORT, "127.0.0.1")
 	if err != OK:
