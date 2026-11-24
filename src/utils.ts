@@ -371,3 +371,30 @@ export function generateCsharpScriptSource(opts: CsharpScriptOptions): string {
   lines.push(classBlock, '');
   return lines.join('\n');
 }
+
+/** Matches the `[autoload]` header plus at most one blank line after it. */
+const AUTOLOAD_HEADER = /^\[autoload\][ \t]*\r?\n(?:[ \t]*\r?\n)?/m;
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Adds `name="*path"` as the first entry of project.godot's [autoload] section (creating the
+ * section when missing). Exact inverse of removeAutoloadEntry: add then remove leaves the file
+ * byte-identical, so repeated runs never accumulate blank lines. Keeps the file's line endings.
+ */
+export function addAutoloadEntry(content: string, name: string, path: string): string {
+  const eol = content.includes('\r\n') ? '\r\n' : '\n';
+  const line = `${name}="*${path}"`;
+  if (AUTOLOAD_HEADER.test(content)) {
+    return content.replace(AUTOLOAD_HEADER, (header) => `${header}${line}${eol}`);
+  }
+  const separator = content.length === 0 || content.endsWith('\n') ? '' : eol;
+  return `${content}${separator}${eol}[autoload]${eol}${eol}${line}${eol}`;
+}
+
+/** Removes the `name=...` line(s) from project.godot, touching nothing else. */
+export function removeAutoloadEntry(content: string, name: string): string {
+  return content.replace(new RegExp(`^${escapeRegExp(name)}[ \\t]*=.*(?:\\r?\\n|$)`, 'gm'), '');
+}

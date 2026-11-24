@@ -40,6 +40,8 @@ import {
   isValidCsharpIdentifier,
   parseGodotScriptDiagnostics,
   collectGdPaths,
+  addAutoloadEntry,
+  removeAutoloadEntry,
   type OperationParams,
 } from './utils.js';
 
@@ -400,18 +402,8 @@ export class GodotServer {
     copyFileSync(this.interactionScriptPath, destScript);
     this.logDebug(`Copied interaction server script to ${destScript}`);
 
-    let content = existingContent;
-
-    const autoloadLine = `${this.AUTOLOAD_NAME}="*res://mcp_interaction_server.gd"`;
-
-    if (content.includes('[autoload]')) {
-      // Add after existing [autoload] section header
-      content = content.replace('[autoload]', `[autoload]\n\n${autoloadLine}`);
-    } else {
-      // Add new [autoload] section at end
-      content += `\n[autoload]\n\n${autoloadLine}\n`;
-    }
-
+    // removeInteractionServer undoes this exactly, so runs never leave blank lines behind
+    const content = addAutoloadEntry(existingContent, this.AUTOLOAD_NAME, 'res://mcp_interaction_server.gd');
     writeFileSync(projectFile, content, 'utf8');
     this.logDebug(`Injected ${this.AUTOLOAD_NAME} autoload into project.godot`);
   }
@@ -431,10 +423,7 @@ export class GodotServer {
 
     // Remove autoload line from project.godot
     if (existsSync(projectFile)) {
-      let content = readFileSync(projectFile, 'utf8');
-      // Remove the autoload line (and any surrounding blank line)
-      const autoloadLine = `${this.AUTOLOAD_NAME}="*res://mcp_interaction_server.gd"`;
-      content = content.replace(new RegExp(`\\n?${autoloadLine.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\n?`), '\n');
+      const content = removeAutoloadEntry(readFileSync(projectFile, 'utf8'), this.AUTOLOAD_NAME);
       writeFileSync(projectFile, content, 'utf8');
       this.logDebug('Removed interaction server autoload from project.godot');
     }
@@ -5355,19 +5344,13 @@ export class GodotServer {
       } else if (args.action === 'add') {
         if (!args.name || !args.path)
           return createErrorResponse('name and path are required for add action.');
-        const autoloadLine = `${args.name}="*${args.path}"`;
-        if (content.includes('[autoload]')) {
-          content = content.replace('[autoload]', `[autoload]\n\n${autoloadLine}`);
-        } else {
-          content += `\n[autoload]\n\n${autoloadLine}\n`;
-        }
+        content = addAutoloadEntry(content, args.name, args.path);
         writeFileSync(projectFile, content, 'utf8');
         return { content: [{ type: 'text', text: `Autoload "${args.name}" added: ${args.path}` }] };
       } else if (args.action === 'remove') {
         if (!args.name)
           return createErrorResponse('name is required for remove action.');
-        const pattern = new RegExp(`\\n?${args.name}\\s*=.*\\n?`, 'g');
-        content = content.replace(pattern, '\n');
+        content = removeAutoloadEntry(content, args.name);
         writeFileSync(projectFile, content, 'utf8');
         return { content: [{ type: 'text', text: `Autoload "${args.name}" removed.` }] };
       }
