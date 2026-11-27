@@ -3819,14 +3819,18 @@ export class GodotServer {
 
       process.on('exit', (code: number | null) => {
         this.logDebug(`Godot process exited with code ${code}`);
+        // 'exit' arrives asynchronously: after stop_project, or after a new run_project already
+        // injected the server and connected to the new game. Only the active run may clean up.
+        if (!this.activeProcess || this.activeProcess.process !== process) {
+          this.logDebug('Exited process is no longer the active run; leaving cleanup to it');
+          return;
+        }
         this.disconnectFromGame();
         if (this.gameConnection.projectPath) {
           this.removeInteractionServer(this.gameConnection.projectPath);
           this.gameConnection.projectPath = null;
         }
-        if (this.activeProcess && this.activeProcess.process === process) {
-          this.activeProcess = null;
-        }
+        this.activeProcess = null;
       });
 
       process.on('error', (err: Error) => {
